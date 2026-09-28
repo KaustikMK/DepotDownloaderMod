@@ -1,0 +1,55 @@
+name: Build Linux arm64 static binary
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Linux arm64 static binary
+    runs-on: ubuntu-24.04
+
+    env:
+      PROJECT: DepotDownloader/DepotDownloaderMod.csproj
+      RUNTIME_IDENTIFIER: linux-arm64
+      PUBLISH_DIRECTORY: artifacts/linux-arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore runtime-specific dependencies
+        run: dotnet restore "$PROJECT" --runtime "$RUNTIME_IDENTIFIER"
+
+      - name: Publish self-contained single-file binary
+        run: >-
+          dotnet publish "$PROJECT"
+          --configuration Release
+          --runtime "$RUNTIME_IDENTIFIER"
+          --self-contained true
+          --no-restore
+          --output "$PUBLISH_DIRECTORY"
+          -p:PublishSingleFile=true
+          -p:DebugType=None
+          -p:DebugSymbols=false
+
+      - name: Verify arm64 executable
+        run: |
+          test -x "$PUBLISH_DIRECTORY/DepotDownloaderMod"
+          readelf --file-header "$PUBLISH_DIRECTORY/DepotDownloaderMod" | grep --fixed-strings 'Machine:                           AArch64'
+
+      - name: Upload Linux arm64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: DepotDownloaderMod-linux-arm64
+          path: ${{ env.PUBLISH_DIRECTORY }}
+          if-no-files-found: error
