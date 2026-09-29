@@ -13,4 +13,4 @@ cd android
 ./gradlew assembleRelease
 ```
 
-The GitHub Actions artifact is a release APK with the downloader and its Android runtime bundled. The source repository's `linux-arm64` artifact is not used because Android requires its own runtime ABI.
+The GitHub Actions artifact is an installable release APK, signed with the Android debug certificate, with the downloader and its Android runtime bundled. It is suitable for direct installation and testing, but it is not signed for Play Store distribution. The source repository's `linux-arm64` artifact is not used because Android requires its own runtime ABI.
