@@ -13,4 +13,6 @@ cd android
 ./gradlew assembleRelease
 ```
 
+The GitHub Actions debug artifact is a **development UI build**. It intentionally excludes the `verifyBundledDownloader` check because this repository does not contain a distributable Android executable; it will report that the downloader is missing when an import is run. Do not distribute it as a functional downloader.
+
 The source repository's `linux-arm64` artifact is **not** automatically suitable for Android. Android uses a different libc/linker ABI, so release builds must package an Android-targeted binary.
