@@ -40,9 +40,9 @@ jobs:
       - name: Publish bundled Android runtime
         run: |
           dotnet publish DepotDownloader/DepotDownloaderMod.csproj --configuration Release --runtime android-arm64 --self-contained true --output android/app/src/main/assets/depotdownloader
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
           "${ANDROID_HOME}/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang" \
-            android/native/depotdownloader-host.cpp -ldl -o android/app/src/main/assets/depotdownloader/depotdownloader
-          chmod 700 android/app/src/main/assets/depotdownloader/depotdownloader
+            android/native/depotdownloader-host.cpp -ldl -o android/app/src/main/jniLibs/arm64-v8a/libdepotdownloader.so
       - name: Assemble Android APK
         working-directory: android
         run: gradle --no-daemon :app:assembleRelease

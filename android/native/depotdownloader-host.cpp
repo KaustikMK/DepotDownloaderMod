@@ -26,7 +26,22 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    char *directory = dirname(executable);
+    // Native libraries are installed in the APK's native-library directory,
+    // which is executable. The managed runtime is deliberately kept in the
+    // app's private files directory, where it can be updated/copied safely.
+    char runtime_directory[PATH_MAX];
+    const char *runtime_home = getenv("DEPOTDOWNLOADER_HOME");
+    if (runtime_home != NULL && runtime_home[0] != '\0') {
+        if (realpath(runtime_home, runtime_directory) == NULL) {
+            perror("Unable to resolve depotdownloader runtime path");
+            return 1;
+        }
+    } else {
+        strncpy(runtime_directory, dirname(executable), sizeof(runtime_directory) - 1);
+        runtime_directory[sizeof(runtime_directory) - 1] = '\0';
+    }
+
+    char *directory = runtime_directory;
     if (chdir(directory) != 0) {
         perror("Unable to enter depotdownloader directory");
         return 1;

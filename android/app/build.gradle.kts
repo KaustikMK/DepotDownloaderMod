@@ -37,14 +37,14 @@ android {
 // The executable is supplied by the release-packaging process rather than
 // checked into source control. Development APKs can still exercise the UI, but
 // a distributable release must not be assembled without it.
-val bundledDownloader = layout.projectDirectory.file("src/main/assets/depotdownloader/depotdownloader")
+val bundledRuntime = layout.projectDirectory.file("src/main/assets/depotdownloader/DepotDownloaderMod.dll")
+val bundledHost = layout.projectDirectory.file("src/main/jniLibs/arm64-v8a/libdepotdownloader.so")
 val verifyBundledDownloader by tasks.registering {
-    inputs.file(bundledDownloader).optional()
+    inputs.files(bundledRuntime, bundledHost).optional()
 
     doLast {
-        check(bundledDownloader.asFile.isFile) {
-            "Missing bundled downloader: add an Android arm64 executable at " +
-                "${bundledDownloader.asFile}. Refusing to assemble an APK that will fail at runtime."
+        check(bundledRuntime.asFile.isFile && bundledHost.asFile.isFile) {
+            "Missing bundled downloader runtime or native host. Refusing to assemble an APK that will fail at runtime."
         }
     }
 }

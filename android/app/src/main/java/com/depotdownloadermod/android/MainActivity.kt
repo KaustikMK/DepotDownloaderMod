@@ -3,7 +3,6 @@ package com.depotdownloadermod.android
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
-import android.system.Os
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -95,7 +94,7 @@ private fun DownloadScreen() {
     // importing files only to receive a launch-time FileNotFoundException.
     val downloaderAvailable = remember(context) {
         try {
-            context.assets.open("depotdownloader/depotdownloader").close()
+            context.assets.open("depotdownloader/DepotDownloaderMod.dll").close()
             true
         } catch (_: java.io.FileNotFoundException) {
             false
@@ -277,21 +276,29 @@ private fun InputStream.importManifestArchive(importDirectory: File, archiveName
 private suspend fun runDownloader(context: Context, appId: String, manifests: List<ManifestFile>, keys: File): List<String> = withContext(Dispatchers.IO) {
     val stamp = DateTimeFormatter.ofPattern("HH:mm:ss")
     fun line(message: String) = "[${LocalTime.now().format(stamp)}] $message"
-    val executable = File(context.filesDir, "bin/depotdownloader")
+    // App-private files are not an executable location on all Android releases.
+    // The package manager installs native libraries with the correct SELinux
+    // label and execute bit, so run the tiny native host from there instead.
+    val executable = File(context.applicationInfo.nativeLibraryDir, "libdepotdownloader.so")
+    val runtimeDirectory = File(context.filesDir, "bin")
     try {
-        executable.parentFile?.mkdirs()
-        if (!executable.exists() || !File(executable.parentFile, "DepotDownloaderMod.dll").isFile) {
+        runtimeDirectory.mkdirs()
+        if (!File(runtimeDirectory, "DepotDownloaderMod.dll").isFile) {
             try {
-                context.assets.copyDirectory("depotdownloader", executable.parentFile!!)
+                context.assets.copyDirectory("depotdownloader", runtimeDirectory)
             } catch (exception: java.io.FileNotFoundException) {
                 return@withContext listOf(line("ERROR Bundled depotdownloader runtime is missing from this APK."))
             }
-            Os.chmod(executable.absolutePath, 0b111000000)
+        }
+        if (!executable.isFile || !executable.canExecute()) {
+            return@withContext listOf(line("ERROR Bundled depotdownloader host is missing or is not executable."))
         }
         val outputDir = File(context.getExternalFilesDir(null), "downloads/$appId").apply { mkdirs() }
         manifests.flatMap { manifest ->
             val process = ProcessBuilder(listOf(executable.absolutePath, "-app", appId, "-depot", manifest.depotId, "-manifest", manifest.manifestId, "-manifestfile", manifest.file.absolutePath, "-depotkeys", keys.absolutePath, "-dir", outputDir.absolutePath))
-                .redirectErrorStream(true).start()
+                .apply { environment()["DEPOTDOWNLOADER_HOME"] = runtimeDirectory.absolutePath }
+                .redirectErrorStream(true)
+                .start()
             val lines = process.inputStream.bufferedReader().useLines { sequence -> sequence.map { line(it) }.toList() }
             lines + line("Manifest ${manifest.file.name} finished with exit code ${process.waitFor()}.")
         }
