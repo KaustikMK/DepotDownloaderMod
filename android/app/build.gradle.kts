@@ -28,7 +28,7 @@ android {
 // The executable is supplied by the release-packaging process rather than
 // checked into source control. Development APKs can still exercise the UI, but
 // a distributable release must not be assembled without it.
-val bundledDownloader = layout.projectDirectory.file("src/main/assets/depotdownloader")
+val bundledDownloader = layout.projectDirectory.file("src/main/assets/depotdownloader/depotdownloader")
 val verifyBundledDownloader by tasks.registering {
     inputs.file(bundledDownloader).optional()
 

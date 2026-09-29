@@ -90,6 +90,17 @@ private fun DepotDownloaderApp() {
 private fun DownloadScreen() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
+    // A debug/UI APK can be built without the native downloader.  Detect that
+    // packaging mistake before accepting a job so users do not spend time
+    // importing files only to receive a launch-time FileNotFoundException.
+    val downloaderAvailable = remember(context) {
+        try {
+            context.assets.open("depotdownloader/depotdownloader").close()
+            true
+        } catch (_: java.io.FileNotFoundException) {
+            false
+        }
+    }
     var appId by remember { mutableStateOf("") }
     var manifestFiles by remember { mutableStateOf<List<ManifestFile>>(emptyList()) }
     var keysFile by remember { mutableStateOf<File?>(null) }
@@ -142,6 +153,25 @@ private fun DownloadScreen() {
             Text("Downloader Mod", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Android arm64 client", color = Color(0xFF94A3B8))
         }
+        if (!downloaderAvailable) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF452018)),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Column(Modifier.padding(18.dp)) {
+                        Text("DOWNLOADER NOT INSTALLED", color = Color(0xFFFDBA74), fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "This APK does not include its required Android arm64 depotdownloader runtime. " +
+                                "Install an APK built by this project's Android workflow.",
+                            color = Color(0xFFFED7AA),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
         item {
             StatusCard("01", "Manifest files", manifestFiles.takeIf { it.isNotEmpty() }?.let { "${it.size} manifest file(s) selected" } ?: "Choose a .manifest file or .zip archive", Icons.Default.FolderOpen) {
                 // Some document providers label zip files as application/octet-stream, so
@@ -166,7 +196,7 @@ private fun DownloadScreen() {
         }
         item {
             Button(
-                enabled = !isRunning && appId.isNotBlank() && manifestFiles.isNotEmpty() && keysFile != null,
+                enabled = downloaderAvailable && !isRunning && appId.isNotBlank() && manifestFiles.isNotEmpty() && keysFile != null,
                 onClick = {
                     isRunning = true
                     log = log + "INFO Starting download for App ID $appId"
@@ -250,13 +280,12 @@ private suspend fun runDownloader(context: Context, appId: String, manifests: Li
     val executable = File(context.filesDir, "bin/depotdownloader")
     try {
         executable.parentFile?.mkdirs()
-        if (!executable.exists()) {
-            val binary = try {
-                context.assets.open("depotdownloader")
+        if (!executable.exists() || !File(executable.parentFile, "DepotDownloaderMod.dll").isFile) {
+            try {
+                context.assets.copyDirectory("depotdownloader", executable.parentFile!!)
             } catch (exception: java.io.FileNotFoundException) {
-                return@withContext listOf(line("ERROR Bundled depotdownloader binary is missing. Package app/src/main/assets/depotdownloader."))
+                return@withContext listOf(line("ERROR Bundled depotdownloader runtime is missing from this APK."))
             }
-            binary.use { input -> executable.outputStream().use(input::copyTo) }
             Os.chmod(executable.absolutePath, 0b111000000)
         }
         val outputDir = File(context.getExternalFilesDir(null), "downloads/$appId").apply { mkdirs() }
@@ -268,5 +297,19 @@ private suspend fun runDownloader(context: Context, appId: String, manifests: Li
         }
     } catch (exception: Exception) {
         listOf(line("ERROR ${exception.message ?: "Could not launch bundled arm64 binary."}"))
+    }
+}
+
+private fun android.content.res.AssetManager.copyDirectory(source: String, destination: File) {
+    list(source)?.forEach { name ->
+        val assetPath = "$source/$name"
+        val output = File(destination, name)
+        val children = list(assetPath)
+        if (children.isNullOrEmpty()) {
+            open(assetPath).use { input -> output.outputStream().use(input::copyTo) }
+        } else {
+            output.mkdirs()
+            copyDirectory(assetPath, output)
+        }
     }
 }
