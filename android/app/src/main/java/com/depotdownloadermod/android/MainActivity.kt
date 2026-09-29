@@ -290,9 +290,14 @@ private suspend fun runDownloader(context: Context, appId: String, manifests: Li
                 return@withContext listOf(line("ERROR Bundled depotdownloader runtime is missing from this APK."))
             }
         }
-        if (!executable.isFile || !executable.canExecute()) {
-            return@withContext listOf(line("ERROR Bundled depotdownloader host is missing or is not executable."))
+        if (!executable.isFile) {
+            return@withContext listOf(line("ERROR Bundled depotdownloader host is missing from this APK."))
         }
+        // Native libraries installed by Android's package manager have the
+        // appropriate SELinux label and are executable. File.canExecute(),
+        // however, is an access(2) probe and can report false for this path
+        // on some Android/Termux combinations. Let ProcessBuilder perform the
+        // actual launch rather than rejecting a valid installed host first.
         val outputDir = File(context.getExternalFilesDir(null), "downloads/$appId").apply { mkdirs() }
         manifests.flatMap { manifest ->
             val process = ProcessBuilder(listOf(executable.absolutePath, "-app", appId, "-depot", manifest.depotId, "-manifest", manifest.manifestId, "-manifestfile", manifest.file.absolutePath, "-depotkeys", keys.absolutePath, "-dir", outputDir.absolutePath))
