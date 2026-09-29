@@ -41,7 +41,6 @@ jobs:
         run: |
           dotnet publish DepotDownloader/DepotDownloaderMod.csproj --configuration Release --runtime android-arm64 --self-contained true --output android/app/src/main/assets/depotdownloader
           "${ANDROID_HOME}/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang" \
-            -I "$(find "${DOTNET_ROOT}/packs" -name hostfxr.h -printf '%h\\n' | head -1)" \
             android/native/depotdownloader-host.cpp -ldl -o android/app/src/main/assets/depotdownloader/depotdownloader
           chmod 700 android/app/src/main/assets/depotdownloader/depotdownloader
       - name: Assemble Android APK

@@ -7,9 +7,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <unistd.h>
 
-#include "hostfxr.h"
+// Keep the host interface local rather than depending on a hostfxr.h header in
+// the SDK. The Android runtime pack deliberately does not ship that header.
+typedef void *hostfxr_handle;
+typedef int32_t (*hostfxr_initialize_for_dotnet_command_line_fn)(
+    int argc, const char **argv, const void *parameters, hostfxr_handle *context);
+typedef int32_t (*hostfxr_run_app_fn)(hostfxr_handle context);
+typedef int32_t (*hostfxr_close_fn)(hostfxr_handle context);
 
 int main(int argc, char *argv[])
 {
