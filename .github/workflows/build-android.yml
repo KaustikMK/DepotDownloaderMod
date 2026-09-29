@@ -24,24 +24,30 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
       # `tools` was removed from the SDK repository; override the action's
       # legacy default package list so sdkmanager only installs supported tools.
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
       - name: Install Android SDK platform
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.14.4'
-      # The repository does not contain a distributable Android executable.  Keep
-      # the CI artifact useful for UI/development testing, while leaving the
-      # bundled-binary check enabled for normal and release builds.
-      - name: Assemble development debug APK
+      - name: Publish bundled Android runtime
+        run: |
+          dotnet publish DepotDownloader/DepotDownloaderMod.csproj --configuration Release --runtime android-arm64 --self-contained true --output android/app/src/main/assets/depotdownloader
+          "${ANDROID_HOME}/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang" \
+            android/native/depotdownloader-host.cpp -ldl -o android/app/src/main/assets/depotdownloader/depotdownloader
+          chmod 700 android/app/src/main/assets/depotdownloader/depotdownloader
+      - name: Assemble Android APK
         working-directory: android
-        run: gradle --no-daemon :app:assembleDebug -x :app:verifyBundledDownloader
+        run: gradle --no-daemon :app:assembleRelease
       - uses: actions/upload-artifact@v4
         with:
-          name: DepotDownloaderMod-android-development-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: DepotDownloaderMod-android-arm64
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
