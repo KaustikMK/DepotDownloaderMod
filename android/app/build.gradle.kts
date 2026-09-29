@@ -23,6 +23,15 @@ android {
         versionCode = 1
         versionName = "1.0.0"
     }
+
+    buildTypes {
+        getByName("release") {
+            // CI artifacts are downloaded and installed directly, so they must
+            // be APK-signed. A production pipeline can replace this with its
+            // own signing config through the normal Gradle configuration.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
 }
 
 // The executable is supplied by the release-packaging process rather than
