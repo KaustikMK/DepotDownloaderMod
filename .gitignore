@@ -121,3 +121,4 @@ Thumbs.db
 launchSettings.json
 # Android Gradle local state
 .gradle/
+android/build/

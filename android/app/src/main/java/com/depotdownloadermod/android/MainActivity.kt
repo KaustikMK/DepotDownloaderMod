@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import android.system.Os
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -53,8 +54,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.InputStream
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.zip.ZipInputStream
+
+private data class ManifestFile(val file: File, val depotId: String, val manifestId: String)
+
+private val manifestFileName = Regex("^(\\d+)_(\\d+)\\.manifest$", RegexOption.IGNORE_CASE)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,7 +91,7 @@ private fun DownloadScreen() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var appId by remember { mutableStateOf("") }
-    var manifestFile by remember { mutableStateOf<File?>(null) }
+    var manifestFiles by remember { mutableStateOf<List<ManifestFile>>(emptyList()) }
     var keysFile by remember { mutableStateOf<File?>(null) }
     var log by remember { mutableStateOf(listOf("Ready. Select your manifest and depot keys.")) }
     var isRunning by remember { mutableStateOf(false) }
@@ -96,8 +103,30 @@ private fun DownloadScreen() {
         setFile(target)
         log = log + "OK   Imported $label"
     }
+
+    fun importManifests(uri: Uri) {
+        try {
+            val displayName = context.contentResolver.displayName(uri)
+            val imported = context.contentResolver.openInputStream(uri)?.use { input ->
+                if (displayName.endsWith(".zip", ignoreCase = true)) {
+                    input.importManifestArchive(context.filesDir, displayName)
+                } else {
+                    input.importSingleManifest(context.filesDir, displayName)
+                }
+            }.orEmpty()
+
+            if (imported.isEmpty()) {
+                log = log + "ERROR No files named <depotId>_<manifestId>.manifest were found."
+            } else {
+                manifestFiles = imported
+                log = log + "OK   Imported ${imported.size} manifest file(s)"
+            }
+        } catch (exception: Exception) {
+            log = log + "ERROR Could not import manifests: ${exception.message ?: "unknown error"}"
+        }
+    }
     val manifestPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { importFile(it, "manifest.manifest", { manifestFile = it }) }
+        uri?.let(::importManifests)
     }
     val keysPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { importFile(it, "depotkeys.txt", { keysFile = it }) }
@@ -114,8 +143,10 @@ private fun DownloadScreen() {
             Text("Android arm64 client", color = Color(0xFF94A3B8))
         }
         item {
-            StatusCard("01", "Manifest file", manifestFile?.name ?: "Choose a dumped .manifest file", Icons.Default.FolderOpen) {
-                manifestPicker.launch(arrayOf("application/octet-stream", "text/plain"))
+            StatusCard("01", "Manifest files", manifestFiles.takeIf { it.isNotEmpty() }?.let { "${it.size} manifest file(s) selected" } ?: "Choose a .manifest file or .zip archive", Icons.Default.FolderOpen) {
+                // Some document providers label zip files as application/octet-stream, so
+                // accept all types and validate the selected file ourselves.
+                manifestPicker.launch(arrayOf("*/*"))
             }
         }
         item {
@@ -135,12 +166,12 @@ private fun DownloadScreen() {
         }
         item {
             Button(
-                enabled = !isRunning && appId.isNotBlank() && manifestFile != null && keysFile != null,
+                enabled = !isRunning && appId.isNotBlank() && manifestFiles.isNotEmpty() && keysFile != null,
                 onClick = {
                     isRunning = true
                     log = log + "INFO Starting download for App ID $appId"
                     scope.launch {
-                        val output = runDownloader(context, appId, manifestFile!!, keysFile!!)
+                        val output = runDownloader(context, appId, manifestFiles, keysFile!!)
                         log = log + output
                         isRunning = false
                     }
@@ -182,21 +213,59 @@ private fun StatusCard(number: String, title: String, detail: String, icon: andr
     }
 }
 
-private suspend fun runDownloader(context: Context, appId: String, manifest: File, keys: File): List<String> = withContext(Dispatchers.IO) {
+private fun android.content.ContentResolver.displayName(uri: Uri): String =
+    query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        cursor.takeIf { it.moveToFirst() }?.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+    } ?: uri.lastPathSegment.orEmpty()
+
+private fun InputStream.importSingleManifest(importDirectory: File, sourceName: String): List<ManifestFile> {
+    val match = manifestFileName.matchEntire(File(sourceName).name) ?: return emptyList()
+    val destination = File(importDirectory, "imports/${System.currentTimeMillis()}-${match.value}")
+    destination.parentFile?.mkdirs()
+    destination.outputStream().use { output -> copyTo(output) }
+    return listOf(ManifestFile(destination, match.groupValues[1], match.groupValues[2]))
+}
+
+private fun InputStream.importManifestArchive(importDirectory: File, archiveName: String): List<ManifestFile> {
+    val extractionDirectory = File(importDirectory, "imports/${System.currentTimeMillis()}-${archiveName.removeSuffix(".zip")}").apply { mkdirs() }
+    val manifests = mutableListOf<ManifestFile>()
+    ZipInputStream(this).use { zip ->
+        while (true) {
+            val entry = zip.nextEntry ?: break
+            val match = manifestFileName.matchEntire(File(entry.name).name)
+            if (!entry.isDirectory && match != null) {
+                val destination = File(extractionDirectory, match.value)
+                destination.outputStream().use { zip.copyTo(it) }
+                manifests += ManifestFile(destination, match.groupValues[1], match.groupValues[2])
+            }
+            zip.closeEntry()
+        }
+    }
+    return manifests
+}
+
+private suspend fun runDownloader(context: Context, appId: String, manifests: List<ManifestFile>, keys: File): List<String> = withContext(Dispatchers.IO) {
     val stamp = DateTimeFormatter.ofPattern("HH:mm:ss")
     fun line(message: String) = "[${LocalTime.now().format(stamp)}] $message"
     val executable = File(context.filesDir, "bin/depotdownloader")
     try {
         executable.parentFile?.mkdirs()
         if (!executable.exists()) {
-            context.assets.open("depotdownloader").use { input -> executable.outputStream().use(input::copyTo) }
+            val binary = try {
+                context.assets.open("depotdownloader")
+            } catch (exception: java.io.FileNotFoundException) {
+                return@withContext listOf(line("ERROR Bundled depotdownloader binary is missing. Package app/src/main/assets/depotdownloader."))
+            }
+            binary.use { input -> executable.outputStream().use(input::copyTo) }
             Os.chmod(executable.absolutePath, 0b111000000)
         }
         val outputDir = File(context.getExternalFilesDir(null), "downloads/$appId").apply { mkdirs() }
-        val process = ProcessBuilder(listOf(executable.absolutePath, "-app", appId, "-manifestfile", manifest.absolutePath, "-depotkeys", keys.absolutePath, "-dir", outputDir.absolutePath))
-            .redirectErrorStream(true).start()
-        val lines = process.inputStream.bufferedReader().useLines { sequence -> sequence.map { line(it) }.toList() }
-        lines + line("Process finished with exit code ${process.waitFor()}.")
+        manifests.flatMap { manifest ->
+            val process = ProcessBuilder(listOf(executable.absolutePath, "-app", appId, "-depot", manifest.depotId, "-manifest", manifest.manifestId, "-manifestfile", manifest.file.absolutePath, "-depotkeys", keys.absolutePath, "-dir", outputDir.absolutePath))
+                .redirectErrorStream(true).start()
+            val lines = process.inputStream.bufferedReader().useLines { sequence -> sequence.map { line(it) }.toList() }
+            lines + line("Manifest ${manifest.file.name} finished with exit code ${process.waitFor()}.")
+        }
     } catch (exception: Exception) {
         listOf(line("ERROR ${exception.message ?: "Could not launch bundled arm64 binary."}"))
     }
