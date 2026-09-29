@@ -25,6 +25,27 @@ android {
     }
 }
 
+// The executable is supplied by the release-packaging process rather than
+// checked into source control. Development APKs can still exercise the UI, but
+// a distributable release must not be assembled without it.
+val bundledDownloader = layout.projectDirectory.file("src/main/assets/depotdownloader")
+val verifyBundledDownloader by tasks.registering {
+    inputs.file(bundledDownloader).optional()
+
+    doLast {
+        check(bundledDownloader.asFile.isFile) {
+            "Missing bundled downloader: add an Android arm64 executable at " +
+                "${bundledDownloader.asFile}. Refusing to assemble an APK that will fail at runtime."
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == "preReleaseBuild") {
+        dependsOn(verifyBundledDownloader)
+    }
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.10.0")
