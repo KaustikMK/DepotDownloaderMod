@@ -92,3 +92,7 @@ If you pass the `-password` parameter with a password that contains special char
 ### Why am I getting slow download speeds and frequent connection timeouts?
 When downloading old builds, cache server may not have the chunks readily available which makes downloading slower.
 Try increasing `-max-downloads` to saturate the network more.
+
+## Android arm64 app
+
+The [`android/`](android) module is a modern Material 3 wrapper for an Android-compatible arm64 build of this downloader. It imports the manifest and depot-key files using Android's system document picker, runs the bundled executable from private app storage, and keeps the command output in an on-device activity log. See [`android/README.md`](android/README.md) for binary packaging and APK build instructions. A Linux `arm64` executable is not interchangeable with an Android `arm64` executable.
